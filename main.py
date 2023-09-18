@@ -61,7 +61,7 @@ def slide(folder_id, check_interval, slide_interval):
         gauth = GoogleAuth()
         gauth.LocalWebserverAuth()
         return GoogleDrive(gauth)
-
+    
     # Baixa imagens do Google Drive e atualiza a lista de imagens
     def download_images(drive, folder_id, temp_dir):
         try:
@@ -80,51 +80,12 @@ def slide(folder_id, check_interval, slide_interval):
             messagebox.showerror("Erro", "A pasta do Google Drive não foi encontrada ou não está compartilhada. Verifique o ID da pasta e as configurações de compartilhamento.")
             root.destroy()  # Fecha a janela se ocorrer um erro
 
-    # Obtém os nomes dos arquivos baixados do Google Drive
+
+    # Obtém os nomes dos arquivos baixados do Google Drive para o PC
     def get_downloaded_file_names(drive, folder_id):
         file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
         return set(file['title'] for file in file_list)
 
-    # Obtém os nomes dos arquivos na pasta temporária
-    def get_temp_file_names(temp_dir):
-        return set(os.listdir(temp_dir))
-
-    # Verifica e atualiza as imagens a cada check_interval (em segundos)
-    def check_and_update_images(drive, folder_id, temp_dir, images, downloaded_file_names, check_interval):
-        while True:
-            try:
-                # print("Iniciando verificação do Google Drive...")  # Adiciona uma mensagem de log
-                temp_file_names = get_temp_file_names(temp_dir)
-
-                download_new_images(drive, temp_dir, images, downloaded_file_names, temp_file_names)
-                delete_unused_images(temp_dir, downloaded_file_names)
-
-            except Exception as e:
-                # print(f"Erro ao verificar/atualizar imagens: {str(e)}")
-                messagebox.showerror("Erro", "Erro ao verificar/atualizar imagens, favor tentar novamente mais tarde!")
-                root.destroy()  # Fecha a janela se ocorrer um erro
-
-            time.sleep(check_interval)
-
-    # Baixa novas imagens que estão no Google Drive, mas não na pasta temporária
-    def download_new_images(drive, temp_dir, images, downloaded_file_names, temp_file_names):
-        for file in drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList():
-            if 'image' in file['mimeType'] and file['title'] not in temp_file_names:
-                image_content = drive.CreateFile({'id': file['id']})
-                image_path = os.path.join(temp_dir, file['title'])
-                image_content.GetContentFile(image_path)
-                images.append(image_path)
-                downloaded_file_names.add(file['title'])
-
-    # Exclui imagens na pasta temporária que não estão no Google Drive
-    def delete_unused_images(temp_dir, downloaded_file_names):
-        for file_name in downloaded_file_names.copy():
-            if file_name not in downloaded_file_names:
-                file_path = os.path.join(temp_dir, file_name)
-                os.remove(file_path)
-                downloaded_file_names.remove(file_name)
-                images.remove(file_path)
-                
     # Redimensiona uma imagem mantendo a proporção
     def resize_image(image_path, new_width, new_height):
         img = Image.open(image_path)
@@ -138,6 +99,52 @@ def slide(folder_id, check_interval, slide_interval):
         img = img.resize((new_width, new_height), Image.LANCZOS)
         return ImageTk.PhotoImage(img)
 
+    # Verifica e atualiza as imagens a cada 'check_interval' segundos
+    def check_and_update_images(drive, folder_id, temp_dir, images, downloaded_file_names, check_interval):
+        while True:
+            try:
+                # print("Iniciando verificação do Google Drive...")  # Adiciona uma mensagem de log
+                drive_file_names = get_drive_file_names(drive, folder_id)
+                temp_file_names = get_temp_file_names(temp_dir)
+
+                download_new_images(drive, temp_dir, images, downloaded_file_names, drive_file_names, temp_file_names)
+                delete_unused_images(temp_dir, downloaded_file_names, drive_file_names)
+
+            except Exception as e:
+                # print(f"Erro ao verificar/atualizar imagens: {str(e)}")
+                messagebox.showerror("Erro", "Erro ao verificar/atualizar imagens!")
+                root.destroy()  # Fecha a janela se ocorrer um erro
+
+            time.sleep(check_interval)
+
+    # Obtém os nomes dos arquivos atualmento no Google Drive
+    def get_drive_file_names(drive, folder_id):
+        file_list = drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList()
+        return set(file['title'] for file in file_list)
+
+    # Obtém os nomes dos arquivos na pasta temporária
+    def get_temp_file_names(temp_dir):
+        return set(os.listdir(temp_dir))
+
+    # Baixa novas imagens que estão no Google Drive, mas não na pasta temporária
+    def download_new_images(drive, temp_dir, images, downloaded_file_names, drive_file_names, temp_file_names):
+        for file in drive.ListFile({'q': f"'{folder_id}' in parents and trashed=false"}).GetList():
+            if 'image' in file['mimeType'] and file['title'] not in temp_file_names:
+                image_content = drive.CreateFile({'id': file['id']})
+                image_path = os.path.join(temp_dir, file['title'])
+                image_content.GetContentFile(image_path)
+                images.append(image_path)
+                downloaded_file_names.add(file['title'])
+
+    # Exclui imagens na pasta temporária que não estão no Google Drive
+    def delete_unused_images(temp_dir, downloaded_file_names, drive_file_names):
+        for file_name in downloaded_file_names.copy():
+            if file_name not in drive_file_names:
+                file_path = os.path.join(temp_dir, file_name)
+                os.remove(file_path)
+                downloaded_file_names.remove(file_name)
+                images.remove(file_path)
+
     # Atualiza as imagens
     def update_images(image_label, images, current_image_idx, slide_interval):
         current_image_idx += 1
@@ -150,11 +157,8 @@ def slide(folder_id, check_interval, slide_interval):
             photo = resize_image(image_path, screen_width, screen_height)
             image_label.config(image=photo)
             image_label.image = photo
-            
         else:
-            # print(f"Arquivo não encontrado: {image_path}")
-            messagebox.showerror("Erro", f"Arquivo não encontrado: {image_path}")
-            root.destroy()  # Fecha a janela se ocorrer um erro
+            print(f"Arquivo não encontrado: {image_path}")
 
         root.after(slide_interval, partial(update_images, image_label, images, current_image_idx, slide_interval))
 
@@ -190,14 +194,6 @@ def slide(folder_id, check_interval, slide_interval):
     
     root.protocol("WM_DELETE_WINDOW", on_closing)
 
-# Inicia a tela de configuração do programa
-customtkinter.set_appearance_mode("system")
-gui = customtkinter.CTk()
-
-gui.geometry("350x350")
-gui.resizable(False, False)
-gui.title("Slide from Drive by WendelSH09")
-
 # Carrega as últimas informações colocadas nos campos de texto
 def load_and_fill_last_entry():
     global folder_id, check_interval, slide_interval
@@ -225,6 +221,15 @@ def slide_init():
     
     save_last_entry(folder_id, check_interval, slide_interval)
     slide(folder_id, check_interval, slide_interval)
+    
+# Inicia a tela de configuração do programa
+customtkinter.set_appearance_mode("system")
+gui = customtkinter.CTk()
+
+gui.geometry("350x350")
+gui.resizable(False, False)
+gui.title("Slide from Drive by WendelSH09")
+gui.iconbitmap("icon.ico")
 
 # Frame para organizar os elementos internamente
 frame1 = customtkinter.CTkFrame(master=gui)
